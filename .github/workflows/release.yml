@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install build dependencies
         run: |
@@ -36,9 +38,11 @@ jobs:
             build-essential devscripts debhelper dh-make \
             libncurses-dev
 
-      - name: Fix changelog distribution
+      - name: Update changelog
         run: |
-          sed -i 's/UNRELEASED/${{ matrix.ubuntu_version.codename }}/' debian/changelog
+          GIT_TAG=$(git describe --tags --abbrev=0)
+          VERSION="${GIT_TAG}-1${{ matrix.ubuntu_version.codename }}"
+          sed -i "1s/.*/ccm (${VERSION}) ${{ matrix.ubuntu_version.codename }}; urgency=medium/" debian/changelog
 
       - name: Build package
         run: |
