@@ -305,7 +305,7 @@ int update_display() {
   if (mid_width > 0) {
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%*s", mid_width, "");
   }
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s %5s %5s %5s %5s  %c", "Load%", "usr%", "sys%",
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %c", "Load%", "usr%", "sys%",
            "nice%", "idle%", ' ');
   /* Truncate to terminal width */
   if (hpos > max_x)
@@ -371,7 +371,7 @@ int update_display() {
       mvprintw(row, bar_start_col + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
 
-      mvprintw(row, pct_col, "%6.1f%% %5.1f %5.1f %5.1f %5.1f  %s",
+      mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %s",
                hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
                hosts[i].nice_pct, hosts[i].idle_pct, locked ? " " : spinner);
     } else {
