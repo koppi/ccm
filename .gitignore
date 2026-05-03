@@ -1,0 +1,12 @@
+# Build artifacts
+ccm
+*.o
+
+# Editor files
+.*.swp
+*~
+.vim*
+
+# OS files
+.DS_Store
+Thumbs.db
