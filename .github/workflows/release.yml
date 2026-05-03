@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Build package
         run: |
@@ -55,7 +55,7 @@ jobs:
             sed -i "1s/.*/ccm (${VERSION}) ${CODENAME}; urgency=medium/" debian/changelog
             dpkg-buildpackage -b -uc -us -d
           mkdir -p "/workspace/${REPO_DIR}/deb-output"
-          find /workspace -path "*/deb-output" -prune -o -type f \( -name "*.deb" -o -name "*.ddeb" \) -print | while read -r f; do cp "$f" "/workspace/${REPO_DIR}/deb-output/"; done
+          find /workspace -path "*/deb-output" -prune -o -type f \( -name "*.deb" -o -name "*.ddeb" -o -name "*.dsc" \) -print | while read -r f; do cp "$f" "/workspace/${REPO_DIR}/deb-output/"; done
           '
         env:
           DEB_BUILD_OPTIONS: nocheck
