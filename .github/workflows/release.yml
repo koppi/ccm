@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build .deb for Ubuntu ${{ matrix.ubuntu_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ubuntu_version:
+          - version: "18.04"
+            codename: bionic
+          - version: "20.04"
+            codename: focal
+          - version: "22.04"
+            codename: jammy
+          - version: "24.04"
+            codename: noble
+          - version: "26.04"
+            codename: plucky
+    container:
+      image: ubuntu:${{ matrix.ubuntu_version.codename }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential devscripts debhelper dh-make \
+            libncurses-dev
+
+      - name: Fix changelog distribution
+        run: |
+          sed -i 's/UNRELEASED/${{ matrix.ubuntu_version.codename }}/' debian/changelog
+
+      - name: Build package
+        run: |
+          dpkg-buildpackage -b -uc -us
+        env:
+          DEB_BUILD_OPTIONS: nocheck
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccm-deb-${{ matrix.ubuntu_version.codename }}
+          path: |
+            ../*.deb
+            ../*.ddeb
+          if-no-files-found: ignore
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release-packages
+          find artifacts -type f -name "*.deb" -o -name "*.ddeb" | while read -r file; do
+            cp "$file" release-packages/
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-packages/*
+          generate_release_notes: true
