@@ -43,6 +43,8 @@ jobs:
       - name: Build package
         run: |
           dpkg-buildpackage -b -uc -us -d
+          mkdir -p deb-output
+          cp ../*.deb ../*.ddeb deb-output/ || true
         env:
           DEB_BUILD_OPTIONS: nocheck
 
@@ -50,9 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ccm-deb-${{ matrix.ubuntu_version.codename }}
-          path: |
-            ../*.deb
-            ../*.ddeb
+          path: deb-output/
           if-no-files-found: ignore
 
   release:
