@@ -42,7 +42,7 @@ jobs:
 
       - name: Build package
         run: |
-          dpkg-buildpackage -b -uc -us
+          dpkg-buildpackage -b -uc -us -d
         env:
           DEB_BUILD_OPTIONS: nocheck
 
