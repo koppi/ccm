@@ -1,5 +1,6 @@
-ccm (0.0.1-1) UNRELEASED; urgency=medium
+ccm (0.0.2-1) UNRELEASED; urgency=medium
 
   * Initial release.
+  * Bump version
 
- -- Jakob Flierl <jakob.flierl@gmail.com>  Sun, 03 May 2026 21:20:15 +0200
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Mon, 04 May 2026 00:11:36 +0200
