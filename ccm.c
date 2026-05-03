@@ -19,7 +19,8 @@
  */
 
 #include <getopt.h>
-#include <ncurses.h>
+#include <locale.h>
+#include <ncursesw/ncurses.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,7 @@
 #define MAX_HOSTS 10000
 #define MAX_HOSTNAME 256
 #define HOSTNAME_COL_WIDTH 16
-#define PCT_COL_WIDTH 36 /* "  Load%  usr%  sys% nice% idle%" */
+#define PCT_COL_WIDTH 39 /* "  Load%  usr%  sys% nice% idle%  U" */
 
 /* Host information structure */
 typedef struct {
@@ -258,11 +259,24 @@ void print_help(const char *prog) {
 void print_version() { printf("ccm version %s\n", VERSION); }
 
 /* Update the ncurses display with current CPU usage for all hosts */
-void update_display() {
+int update_display() {
+  static const char *spinners[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+  static int frame = 0;
+  const char *spinner = spinners[frame % 10];
+  frame++;
+
   clear();
 
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
+
+  /* Minimum terminal size: header row + at least one data row = 3 rows */
+  /* Minimum width: hostname(16) + spaces(2) + brackets(2) + minbar(10) + stats(39) */
+  int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + PCT_COL_WIDTH;
+  int min_height = 3;
+  if (max_x < min_width || max_y < min_height) {
+    return 1;
+  }
 
   int bar_start_col = HOSTNAME_COL_WIDTH + 2; /* After hostname + 2 spaces */
   int pct_col = max_x - PCT_COL_WIDTH;
@@ -278,11 +292,29 @@ void update_display() {
   int row = 1;
 
   /* Print header row */
+  char header[max_x + 1];
+  int hpos = 0;
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", HOSTNAME_COL_WIDTH, "Hostname");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "  ");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "[");
+  if (bar_width > 0)
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "CPU load");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "]");
+  /* Fill remaining space to reach pct_col */
+  int mid_width = pct_col - hpos;
+  if (mid_width > 0) {
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "%*s", mid_width, "");
+  }
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s %5s %5s %5s %5s  %c", "Load%", "usr%", "sys%",
+           "nice%", "idle%", ' ');
+  /* Truncate to terminal width */
+  if (hpos > max_x)
+    header[max_x] = '\0';
+  /* Fill remaining terminal width with spaces */
+  while ((int)strlen(header) < max_x)
+    strcat(header, " ");
   attron(COLOR_PAIR(5));
-  mvprintw(row, 0, "%-*s", HOSTNAME_COL_WIDTH, "Hostname");
-  mvprintw(row, bar_start_col, "[%-*s]", bar_width, "CPU load");
-  mvprintw(row, pct_col, "%6s %5s %5s %5s %5s", "Load%", "usr%", "sys%",
-           "nice%", "idle%");
+  mvprintw(row, 0, "%s", header);
   attroff(COLOR_PAIR(5));
 
   /* Print each host's CPU usage */
@@ -305,8 +337,8 @@ void update_display() {
       attron(COLOR_PAIR(4));
       mvprintw(row, bar_start_col + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
-      mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s", "--.-", "--.-", "--.-",
-               "--.-", "--.-");
+      mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %s", "--.-", "--.-", "--.-",
+               "--.-", "--.-", locked ? " " : spinner);
     } else if (hosts[i].initialized) {
       int bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
       if (bars > bar_width)
@@ -339,16 +371,16 @@ void update_display() {
       mvprintw(row, bar_start_col + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
 
-      mvprintw(row, pct_col, "%6.1f%% %5.1f %5.1f %5.1f %5.1f",
+      mvprintw(row, pct_col, "%6.1f%% %5.1f %5.1f %5.1f %5.1f  %s",
                hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
-               hosts[i].nice_pct, hosts[i].idle_pct);
+               hosts[i].nice_pct, hosts[i].idle_pct, locked ? " " : spinner);
     } else {
       attron(COLOR_PAIR(4));
       mvprintw(row, bar_start_col, "[");
       mvprintw(row, bar_start_col + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
       mvprintw(row, bar_start_col + 1, "%-*s", bar_width, "...");
-      mvprintw(row, pct_col, "connecting...");
+      mvprintw(row, pct_col, "connecting...  %s", locked ? " " : spinner);
     }
 
     if (locked)
@@ -356,6 +388,7 @@ void update_display() {
   }
 
   refresh();
+  return 0;
 }
 
 /* Main entry point */
@@ -439,6 +472,7 @@ int main(int argc, char *argv[]) {
   update_interval = interval;
 
   /* Initialize ncurses */
+  setlocale(LC_ALL, "");
   initscr();
   start_color();
   init_pair(1, COLOR_GREEN, COLOR_BLACK);  /* User CPU time */
@@ -470,7 +504,21 @@ int main(int argc, char *argv[]) {
       refresh();
     }
 
-    update_display();
+    if (update_display() != 0) {
+      int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + PCT_COL_WIDTH;
+      int min_height = 3;
+      int max_y, max_x;
+      getmaxyx(stdscr, max_y, max_x);
+      running = 0;
+      pthread_join(update_thread, NULL);
+      for (int i = 0; i < host_count; i++) {
+        pthread_mutex_destroy(&hosts[i].lock);
+      }
+      endwin();
+      fprintf(stderr, "Error: Terminal too small (need at least %dx%d, got %dx%d)\n",
+              min_width, min_height, max_x, max_y);
+      return 1;
+    }
 
     for (int s = 0; s < steps; s++) {
       napms(100);
