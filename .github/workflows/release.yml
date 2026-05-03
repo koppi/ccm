@@ -81,14 +81,6 @@ jobs:
             codename: trixie
             version: "13"
             arch: arm64
-          - distro: debian
-            codename: fork
-            version: "14"
-            arch: amd64
-          - distro: debian
-            codename: fork
-            version: "14"
-            arch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
