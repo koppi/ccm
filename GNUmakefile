@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2
-LDFLAGS = -lncurses -lm -lpthread
+LDFLAGS = -lncurses -lpthread
 TARGET = ccm
 SOURCES = ccm.c
 PREFIX ?= /usr
