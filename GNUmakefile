@@ -1,11 +1,13 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -Werror -pthread -O2
+CC ?= gcc
+
+PREFIX ?= /usr
+
+CFLAGS = -Wall -Wextra -Werror -pthread -O3
 LDFLAGS = -lncursesw
 TARGET = ccm
 SOURCES = ccm.c
-PREFIX ?= /usr
 
-.PHONY: all clean install run
+.PHONY: all clean install uninstall run
 
 all: $(TARGET)
 
