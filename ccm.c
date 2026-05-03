@@ -484,6 +484,7 @@ int main(int argc, char *argv[]) {
   noecho();
   nodelay(stdscr, TRUE);
   keypad(stdscr, TRUE);
+  curs_set(0);
 
   /* Start background thread for updating CPU data */
   pthread_t update_thread;
