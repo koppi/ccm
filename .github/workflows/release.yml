@@ -22,7 +22,7 @@ jobs:
           - version: "24.04"
             codename: noble
           - version: "26.04"
-            codename: plucky
+            codename: resolute
     container:
       image: ubuntu:${{ matrix.ubuntu_version.codename }}
     steps:
@@ -69,7 +69,7 @@ jobs:
       - name: Flatten artifact directories
         run: |
           mkdir -p release-packages
-          find artifacts -type f -name "*.deb" -o -name "*.ddeb" | while read -r file; do
+          find artifacts -type f -name "*.deb" -o -name "*.ddeb" -o -name "*.dsc" | while read -r file; do
             cp "$file" release-packages/
           done
 
