@@ -50,6 +50,7 @@ typedef struct {
       prev_total;  /* Previous idle and total */
   int initialized; /* Flag if previous values are initialized */
   int ssh_failed;  /* Flag if SSH connection failed */
+  pthread_mutex_t lock; /* Per-host mutex for concurrent access */
 } HostInfo;
 
 /* Forward declarations */
@@ -61,7 +62,6 @@ int host_count = 0;
 int running = 1;
 double update_interval = 0.5;
 int num_threads = 4;
-pthread_mutex_t hosts_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Read hosts from a file, one hostname per line */
 int read_hosts(const char *filename) {
@@ -76,6 +76,8 @@ int read_hosts(const char *filename) {
     if (strlen(line) > 0 && line[0] != '#') {
       snprintf(hosts[host_count].hostname, MAX_HOSTNAME, "%s", line);
       hosts[host_count].initialized = 0;
+      hosts[host_count].ssh_failed = 0;
+      pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
   }
@@ -100,6 +102,8 @@ void parse_hosts_list(const char *hostlist) {
     if (strlen(token) > 0) {
       snprintf(hosts[host_count].hostname, MAX_HOSTNAME, "%s", token);
       hosts[host_count].initialized = 0;
+      hosts[host_count].ssh_failed = 0;
+      pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
 
@@ -119,7 +123,9 @@ typedef struct {
 void *worker_thread_func(void *arg) {
   ThreadArg *targ = (ThreadArg *)arg;
   for (int i = targ->start_idx; i < host_count; i += targ->step) {
+    pthread_mutex_lock(&hosts[i].lock);
     get_cpu_usage(hosts[i].hostname, &hosts[i]);
+    pthread_mutex_unlock(&hosts[i].lock);
   }
   return NULL;
 }
@@ -133,8 +139,6 @@ void *update_thread_func(void *arg) {
     ThreadArg thread_args[100];
     int threads_to_use = (host_count < num_threads) ? host_count : num_threads;
 
-    pthread_mutex_lock(&hosts_mutex);
-
     /* Spawn worker threads */
     for (int t = 0; t < threads_to_use; t++) {
       thread_args[t].start_idx = t;
@@ -146,8 +150,6 @@ void *update_thread_func(void *arg) {
     for (int t = 0; t < threads_to_use; t++) {
       pthread_join(threads[t], NULL);
     }
-
-    pthread_mutex_unlock(&hosts_mutex);
 
     /* Sleep in small increments to check running flag */
     for (int s = 0; s < 10 && running; s++) {
@@ -262,8 +264,6 @@ void update_display() {
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
-  pthread_mutex_lock(&hosts_mutex);
-
   mvprintw(0, 0, "Cluster CPU monitor (Press q or ESC to quit)");
 
   /* Calculate dynamic bar width based on terminal width */
@@ -299,10 +299,14 @@ void update_display() {
     display_name[HOSTNAME_COL_WIDTH] = '\0';
     mvprintw(row, 0, "%-*s", HOSTNAME_COL_WIDTH, display_name);
 
+    int locked = (pthread_mutex_trylock(&hosts[i].lock) == 0);
+
     if (hosts[i].ssh_failed) {
-      mvprintw(row, bar_start_col, "[%-*s]", bar_width, "SSH FAILED");
+      attron(COLOR_PAIR(2));
+      mvprintw(row, bar_start_col, "[%-*s]", bar_width, "SSH failed");
       mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s", "--.-", "--.-", "--.-",
                "--.-", "--.-");
+      attroff(COLOR_PAIR(2));
     } else if (hosts[i].initialized) {
       int bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
       if (bars > bar_width)
@@ -341,9 +345,10 @@ void update_display() {
     } else {
       mvprintw(row, bar_start_col, "[%-*s] connecting...", bar_width, "...");
     }
-  }
 
-  pthread_mutex_unlock(&hosts_mutex);
+    if (locked)
+      pthread_mutex_unlock(&hosts[i].lock);
+  }
 
   refresh();
 }
@@ -477,7 +482,11 @@ int main(int argc, char *argv[]) {
   /* Signal background thread to stop and wait for it */
   running = 0;
   pthread_join(update_thread, NULL);
-  pthread_mutex_destroy(&hosts_mutex);
+
+  /* Destroy per-host mutexes */
+  for (int i = 0; i < host_count; i++) {
+    pthread_mutex_destroy(&hosts[i].lock);
+  }
 
   /* Clean up ncurses */
   endwin();
