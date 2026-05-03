@@ -270,7 +270,7 @@ int update_display() {
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
-  /* Minimum terminal size: header row + at least one data row = 3 rows */
+  /* Minimum terminal size: header row + at least one data row + footer = 3 rows */
   /* Minimum width: hostname(16) + spaces(2) + brackets(2) + minbar(10) + stats(39) */
   int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + PCT_COL_WIDTH;
   int min_height = 3;
@@ -294,8 +294,8 @@ int update_display() {
   /* Print header row */
   char header[max_x + 1];
   int hpos = 0;
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", HOSTNAME_COL_WIDTH, "Hostname");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "  ");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, " %-*s", HOSTNAME_COL_WIDTH, "Hostname");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, " ");
   hpos += snprintf(header + hpos, sizeof(header) - hpos, "[");
   if (bar_width > 0)
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "CPU load");
@@ -318,7 +318,7 @@ int update_display() {
   attroff(COLOR_PAIR(5));
 
   /* Print each host's CPU usage */
-  for (int i = 0; i < host_count && (i + 2) < max_y; i++) {
+  for (int i = 0; i < host_count && (i + 3) < max_y; i++) {
     row = i + 2;
     char display_name[HOSTNAME_COL_WIDTH + 1];
     strncpy(display_name, hosts[i].hostname, HOSTNAME_COL_WIDTH);
@@ -386,6 +386,18 @@ int update_display() {
     if (locked)
       pthread_mutex_unlock(&hosts[i].lock);
   }
+
+  /* Draw footer line */
+  int footer_row = max_y - 1;
+  attron(COLOR_PAIR(5));
+  mvhline(footer_row, 0, ' ', max_x);
+  mvprintw(footer_row, 0, " ESC Quit");
+  /* Right-aligned version and name */
+  char footer_right[64];
+  snprintf(footer_right, sizeof(footer_right), "Cluster CPU monitor %s", VERSION);
+  int right_col = max_x - (int)strlen(footer_right) - 1;
+  if (right_col > 10)
+    mvprintw(footer_row, right_col, "%s", footer_right);
 
   refresh();
   return 0;
@@ -479,7 +491,7 @@ int main(int argc, char *argv[]) {
   init_pair(2, COLOR_RED, COLOR_BLACK);    /* System CPU time */
   init_pair(3, COLOR_YELLOW, COLOR_BLACK); /* Nice CPU time */
   init_pair(4, COLOR_BLUE, COLOR_BLACK);   /* Bracket delimiters */
-  init_pair(5, COLOR_BLACK, COLOR_GREEN);  /* Header background */
+  init_pair(5, COLOR_BLACK, COLOR_GREEN);  /* Header/footer background */
   cbreak();
   noecho();
   nodelay(stdscr, TRUE);
