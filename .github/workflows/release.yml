@@ -45,9 +45,9 @@ jobs:
           docker run --platform "$PLATFORM" --rm \
             -v "${WORKSPACE_PARENT}:/workspace" \
             -w "/workspace/${REPO_DIR}" \
-            -e VERSION \
-            -e CODENAME \
-            -e REPO_DIR \
+            -e VERSION="${VERSION}" \
+            -e CODENAME="${CODENAME}" \
+            -e REPO_DIR="${REPO_DIR}" \
             ubuntu:"${CODENAME}" bash -ec '
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
