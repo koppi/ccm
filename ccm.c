@@ -168,7 +168,7 @@ int get_cpu_usage(const char *hostname, HostInfo *host) {
 
   snprintf(
       cmd, sizeof(cmd),
-      "ssh -o ConnectTimeout=2 -o BatchMode=yes -o StrictHostKeyChecking=no %s "
+      "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
       "\"cat /proc/stat 2>/dev/null | head -1\" 2>/dev/null",
       hostname);
 
@@ -264,9 +264,6 @@ void update_display() {
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
-  mvprintw(0, 0, "Cluster CPU monitor (Press q or ESC to quit)");
-
-  /* Calculate dynamic bar width based on terminal width */
   int bar_start_col = HOSTNAME_COL_WIDTH + 2; /* After hostname + 2 spaces */
   int pct_col = max_x - PCT_COL_WIDTH;
   if (pct_col < bar_start_col + 10)
@@ -281,19 +278,16 @@ void update_display() {
   int row = 1;
 
   /* Print header row */
+  attron(COLOR_PAIR(5));
   mvprintw(row, 0, "%-*s", HOSTNAME_COL_WIDTH, "Hostname");
   mvprintw(row, bar_start_col, "[%-*s]", bar_width, "CPU load");
   mvprintw(row, pct_col, "%6s %5s %5s %5s %5s", "Load%", "usr%", "sys%",
            "nice%", "idle%");
-
-  /* Print separator line */
-  row = 2;
-  for (int i = 0; i <= max_x; i++)
-    addch('-');
+  attroff(COLOR_PAIR(5));
 
   /* Print each host's CPU usage */
-  for (int i = 0; i < host_count && (i + 3) < max_y; i++) {
-    row = i + 3;
+  for (int i = 0; i < host_count && (i + 2) < max_y; i++) {
+    row = i + 2;
     char display_name[HOSTNAME_COL_WIDTH + 1];
     strncpy(display_name, hosts[i].hostname, HOSTNAME_COL_WIDTH);
     display_name[HOSTNAME_COL_WIDTH] = '\0';
@@ -302,11 +296,17 @@ void update_display() {
     int locked = (pthread_mutex_trylock(&hosts[i].lock) == 0);
 
     if (hosts[i].ssh_failed) {
+      attron(COLOR_PAIR(4));
+      mvprintw(row, bar_start_col, "[");
+      attroff(COLOR_PAIR(4));
       attron(COLOR_PAIR(2));
-      mvprintw(row, bar_start_col, "[%-*s]", bar_width, "SSH failed");
+      mvprintw(row, bar_start_col + 1, "%-*s", bar_width, "SSH connect failed");
+      attroff(COLOR_PAIR(2));
+      attron(COLOR_PAIR(4));
+      mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      attroff(COLOR_PAIR(4));
       mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s", "--.-", "--.-", "--.-",
                "--.-", "--.-");
-      attroff(COLOR_PAIR(2));
     } else if (hosts[i].initialized) {
       int bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
       if (bars > bar_width)
@@ -316,34 +316,39 @@ void update_display() {
       int sys_bars = (int)(hosts[i].system_pct / 100.0 * bar_width);
       int nice_bars = (int)(hosts[i].nice_pct / 100.0 * bar_width);
 
+      attron(COLOR_PAIR(4));
       mvprintw(row, bar_start_col, "[");
+      attroff(COLOR_PAIR(4));
 
       int drawn = 0;
       attron(COLOR_PAIR(1));
       for (int j = 0; j < usr_bars && drawn < bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(1));
-
       attron(COLOR_PAIR(2));
       for (int j = 0; j < sys_bars && drawn < bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(2));
-
       attron(COLOR_PAIR(3));
       for (int j = 0; j < nice_bars && drawn < bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(3));
-
       for (int j = drawn; j < bar_width; j++)
         addch(' ');
-
+      attron(COLOR_PAIR(4));
       mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      attroff(COLOR_PAIR(4));
 
       mvprintw(row, pct_col, "%6.1f%% %5.1f %5.1f %5.1f %5.1f",
                hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
                hosts[i].nice_pct, hosts[i].idle_pct);
     } else {
-      mvprintw(row, bar_start_col, "[%-*s] connecting...", bar_width, "...");
+      attron(COLOR_PAIR(4));
+      mvprintw(row, bar_start_col, "[");
+      mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      attroff(COLOR_PAIR(4));
+      mvprintw(row, bar_start_col + 1, "%-*s", bar_width, "...");
+      mvprintw(row, pct_col, "connecting...");
     }
 
     if (locked)
@@ -439,6 +444,8 @@ int main(int argc, char *argv[]) {
   init_pair(1, COLOR_GREEN, COLOR_BLACK);  /* User CPU time */
   init_pair(2, COLOR_RED, COLOR_BLACK);    /* System CPU time */
   init_pair(3, COLOR_YELLOW, COLOR_BLACK); /* Nice CPU time */
+  init_pair(4, COLOR_BLUE, COLOR_BLACK);   /* Bracket delimiters */
+  init_pair(5, COLOR_BLACK, COLOR_GREEN);  /* Header background */
   cbreak();
   noecho();
   nodelay(stdscr, TRUE);
