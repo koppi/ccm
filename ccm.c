@@ -460,7 +460,7 @@ int update_display() {
         attroff(COLOR_PAIR(4));
 
         /* Print CPU load right-aligned inside CPU bar */
-        mvprintw(row, cpu_bar_start + 1 + bar_width - 5, "%5.1f", hosts[i].cpu_usage);
+        mvprintw(row, cpu_bar_start + 1 + bar_width - 6, "%5.1f%%", hosts[i].cpu_usage);
 
         /* Draw Memory bar */
         if (hosts[i].mem_initialized && hosts[i].mem_total > 0) {
@@ -492,7 +492,7 @@ int update_display() {
           attroff(COLOR_PAIR(4));
 
           /* Print memory usage right-aligned inside memory bar */
-          mvprintw(row, mem_bar_start + 1 + bar_width - 6, "%6.1f", hosts[i].mem_usage);
+          mvprintw(row, mem_bar_start + 1 + bar_width - 7, "%6.1f%%", hosts[i].mem_usage);
         } else {
           attron(COLOR_PAIR(4));
           mvprintw(row, mem_bar_start, "[");
