@@ -1,6 +1,6 @@
-# Cluster CPU monitor
+# Cluster CPU & Memory monitor
 
-Ncurses-based CLI tool that monitors CPU usage across multiple hosts via SSH and displays real-time horizontal bar graphs:
+Ncurses-based CLI tool that monitors CPU and memory usage across multiple hosts via SSH and displays real-time horizontal bar graphs:
 
 ![](ccm.gif)
 

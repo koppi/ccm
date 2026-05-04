@@ -271,7 +271,7 @@ int get_host_info(const char *hostname, HostInfo *host) {
 /* Print help message */
 void print_help(const char *prog) {
   printf("Usage: %s [OPTIONS]\n", prog);
-  printf("Monitor CPU usage across multiple hosts via SSH.\n\n");
+  printf("Monitor CPU and memory usage across multiple hosts via SSH.\n\n");
   printf("Options:\n");
   printf("  -n SEC           Update interval in seconds (default: 0.5)\n");
   printf("  --hostfile FILE  Use specified hosts file (default: %s, fallback: "
