@@ -1,3 +1,11 @@
+ccm (0.0.5-1) UNRELEASED; urgency=medium
+
+  * Add responsive terminal display with compact mode for narrow terminals
+  * Add percent symbol to CPU and memory usage displays in bar charts
+  * Update README to mention temperature monitoring
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Mon, 04 May 2026 00:20:00 +0200
+
 ccm (0.0.4-1) UNRELEASED; urgency=medium
 
   * Add CPU temperature column in Celsius
