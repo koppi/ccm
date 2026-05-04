@@ -27,7 +27,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define VERSION "0.0.2"
+#define VERSION "0.0.3"
 #define DEFAULT_HOSTS_FILE "hosts.txt"
 #define HOME_HOSTS_FILE ".ccmrc"
 #define FALLBACK_HOSTS_FILE "/etc/ccm.conf"

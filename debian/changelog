@@ -1,3 +1,11 @@
+ccm (0.0.3-1) UNRELEASED; urgency=medium
+
+  * Add memory utilization monitoring with horizontal bar graph
+  * Combine CPU and memory collection into single SSH call
+  * Update README and help text for CPU & memory monitoring
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Mon, 04 May 2026 00:11:36 +0200
+
 ccm (0.0.2-1) UNRELEASED; urgency=medium
 
   * Initial release.
