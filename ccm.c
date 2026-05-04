@@ -37,6 +37,7 @@
 #define MAX_HOSTNAME 256
 #define HOSTNAME_COL_WIDTH 16
 #define STATS_COL_WIDTH 48 /* " Load%  usr% sys% nice% idle%  Mem%  Temp   U" */
+#define STATS_COL_WIDTH_COMPACT 28 /* " Ld%  usr sys idle  Mem% Tmp U" */
 
 /* Host information structure */
 typedef struct {
@@ -321,21 +322,47 @@ int update_display() {
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
-  int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + 2 + 2 + 10 + STATS_COL_WIDTH;
   int min_height = 3;
-  if (max_x < min_width || max_y < min_height) {
+  int stats_width = STATS_COL_WIDTH_COMPACT;
+  int min_width = HOSTNAME_COL_WIDTH + 2 + stats_width;
+  if (max_y < min_height || max_x < min_width) {
     return 1;
   }
 
   int cpu_bar_start = HOSTNAME_COL_WIDTH + 2;
-  int pct_col = max_x - STATS_COL_WIDTH;
+  int show_bars = 0;
+  int bar_width = 0;
+  int mem_bar_start = cpu_bar_start;
+  int pct_col = cpu_bar_start;
+  int compact_mode = 0;
 
-  int total_bar_space = pct_col - cpu_bar_start - 4; /* -4 for "[ ]  [ ]" */
-  int bar_width = total_bar_space / 2 - 2;
-  if (bar_width < 10)
-    bar_width = 10;
+  /* Calculate actual stats width needed for wide mode */
+  /* Format: "%5.1f %5.1f %5.1f %5.1f  %02d  %s" = 5+1+5+1+5+1+5+2+2+2+3 = 32 */
+  int wide_stats_width = 32;
 
-  int mem_bar_start = cpu_bar_start + bar_width + 4;
+  /* Calculate actual stats width needed for compact mode */
+  /* Format: "%3.0f %3.0f %3.0f %02d %s" = 3+1+3+1+3+1+2+1+3 = 18 */
+  int compact_stats_width = 18;
+
+  /* Show bars only if terminal is wide enough for bars + full stats */
+  int total_bar_space = max_x - cpu_bar_start - wide_stats_width - 6; /* -6 for "[ ]  [ ]" + margin */
+  if (total_bar_space >= 24) { /* Need at least 2*10 + 4 for two minimal bars */
+    show_bars = 1;
+    compact_mode = 0;
+
+    /* Make bars fill available space */
+    bar_width = total_bar_space / 2 - 2;
+    if (bar_width < 10)
+      bar_width = 10;
+
+    stats_width = wide_stats_width;
+    mem_bar_start = cpu_bar_start + bar_width + 4;
+    pct_col = max_x - stats_width; /* Right-align stats */
+  } else {
+    compact_mode = 1;
+    stats_width = compact_stats_width;
+    pct_col = max_x - stats_width; /* Right-align stats */
+  }
 
   int row = 1;
 
@@ -343,19 +370,24 @@ int update_display() {
   char header[max_x + 1];
   int hpos = 0;
   hpos += snprintf(header + hpos, sizeof(header) - hpos, " %-*s", HOSTNAME_COL_WIDTH, "Hostname");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, " [");
-  if (bar_width > 0)
+  if (show_bars) {
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, " [");
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "CPU load");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "]  [");
-  if (bar_width > 0)
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "]  [");
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "Mem usage");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "]");
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "]");
+  }
   int mid_width = pct_col - hpos;
   if (mid_width > 0) {
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%*s", mid_width, "");
   }
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %5s  %5s  %c", "Load%", "usr%", "sys%",
-            "nice%", "idle%", "Mem%", "Temp", ' ');
+  if (compact_mode) {
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "%3s %3s %3s  %4s %c", "usr", "sys", "idl",
+              " °C", ' ');
+  } else {
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "%5s %5s %5s %5s %5s   %c", "usr%", "sys%",
+              "nice%", "idle%", "CPU°C", ' ');
+  }
   if (hpos > max_x)
     header[max_x] = '\0';
   while ((int)strlen(header) < max_x)
@@ -375,92 +407,136 @@ int update_display() {
     int locked = (pthread_mutex_trylock(&hosts[i].lock) == 0);
 
     if (hosts[i].ssh_failed) {
-      attron(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start, "[");
-      attroff(COLOR_PAIR(4));
-      attron(COLOR_PAIR(2));
-      mvprintw(row, cpu_bar_start + 1, "%-*s", bar_width, "SSH connect failed");
-      attroff(COLOR_PAIR(2));
-      attron(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
-      attroff(COLOR_PAIR(4));
-
-      attron(COLOR_PAIR(4));
-      mvprintw(row, mem_bar_start, "[");
-      attroff(COLOR_PAIR(4));
-      attron(COLOR_PAIR(2));
-      mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "");
-      attroff(COLOR_PAIR(2));
-      attron(COLOR_PAIR(4));
-      mvprintw(row, mem_bar_start + 1 + bar_width, "]");
-      attroff(COLOR_PAIR(4));
-
-        attron(COLOR_PAIR(7));
-        mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %5s  %5s  %s", "--.-", "--.-", "--.-",
-                 "--.-", "--.-", "--.-", "--.-", locked ? " " : spinner);
-        attroff(COLOR_PAIR(7));
-    } else if (hosts[i].initialized) {
-      /* Draw CPU bar */
-      int cpu_bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
-      if (cpu_bars > bar_width)
-        cpu_bars = bar_width;
-
-      int usr_bars = (int)(hosts[i].user_pct / 100.0 * bar_width);
-      int sys_bars = (int)(hosts[i].system_pct / 100.0 * bar_width);
-      int nice_bars = (int)(hosts[i].nice_pct / 100.0 * bar_width);
-
-      attron(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start, "[");
-      attroff(COLOR_PAIR(4));
-
-      int drawn = 0;
-      attron(COLOR_PAIR(1));
-      for (int j = 0; j < usr_bars && drawn < cpu_bars; j++, drawn++)
-        addch('#');
-      attroff(COLOR_PAIR(1));
-      attron(COLOR_PAIR(2));
-      for (int j = 0; j < sys_bars && drawn < cpu_bars; j++, drawn++)
-        addch('#');
-      attroff(COLOR_PAIR(2));
-      attron(COLOR_PAIR(3));
-      for (int j = 0; j < nice_bars && drawn < cpu_bars; j++, drawn++)
-        addch('#');
-      attroff(COLOR_PAIR(3));
-      for (int j = drawn; j < bar_width; j++)
-        addch(' ');
-      attron(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
-      attroff(COLOR_PAIR(4));
-
-      /* Draw Memory bar */
-      if (hosts[i].mem_initialized && hosts[i].mem_total > 0) {
-        int mem_used_bars = (int)((double)hosts[i].mem_used / hosts[i].mem_total * bar_width);
-        int mem_buff_bars = (int)((double)hosts[i].mem_buffers / hosts[i].mem_total * bar_width);
-        int mem_total_bars = mem_used_bars + mem_buff_bars;
-        if (mem_total_bars > bar_width) {
-          mem_buff_bars = bar_width - mem_used_bars;
-          if (mem_buff_bars < 0) mem_buff_bars = 0;
-          mem_total_bars = bar_width;
-        }
-
+      if (show_bars) {
         attron(COLOR_PAIR(4));
+        mvprintw(row, cpu_bar_start, "[");
+        mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
         mvprintw(row, mem_bar_start, "[");
-        attroff(COLOR_PAIR(4));
-
-        attron(COLOR_PAIR(1));
-        for (int j = 0; j < mem_used_bars; j++)
-          addch('#');
-        attroff(COLOR_PAIR(1));
-        attron(COLOR_PAIR(6));
-        for (int j = 0; j < mem_buff_bars; j++)
-          addch('#');
-        attroff(COLOR_PAIR(6));
-        for (int j = mem_total_bars; j < bar_width; j++)
-          addch(' ');
-        attron(COLOR_PAIR(4));
         mvprintw(row, mem_bar_start + 1 + bar_width, "]");
         attroff(COLOR_PAIR(4));
+      }
+
+      attron(COLOR_PAIR(7));
+      if (compact_mode) {
+        mvprintw(row, pct_col, "%4s %4s %4s  %2s %s", "--.-", "--.-", "--.-",
+                 "--", locked ? " " : spinner);
       } else {
+        mvprintw(row, pct_col, "%5s %5s %5s %5s %5s %s", "--.-", "--.-", "--.-",
+                 "--.-", "--.-", locked ? " " : spinner);
+      }
+      attroff(COLOR_PAIR(7));
+    } else if (hosts[i].initialized) {
+      if (show_bars) {
+        /* Draw CPU bar */
+        int cpu_bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
+        if (cpu_bars > bar_width)
+          cpu_bars = bar_width;
+
+        int usr_bars = (int)(hosts[i].user_pct / 100.0 * bar_width);
+        int sys_bars = (int)(hosts[i].system_pct / 100.0 * bar_width);
+        int nice_bars = (int)(hosts[i].nice_pct / 100.0 * bar_width);
+
+        attron(COLOR_PAIR(4));
+        mvprintw(row, cpu_bar_start, "[");
+        attroff(COLOR_PAIR(4));
+
+        int drawn = 0;
+        attron(COLOR_PAIR(1));
+        for (int j = 0; j < usr_bars && drawn < cpu_bars; j++, drawn++)
+          addch('#');
+        attroff(COLOR_PAIR(1));
+        attron(COLOR_PAIR(2));
+        for (int j = 0; j < sys_bars && drawn < cpu_bars; j++, drawn++)
+          addch('#');
+        attroff(COLOR_PAIR(2));
+        attron(COLOR_PAIR(3));
+        for (int j = 0; j < nice_bars && drawn < cpu_bars; j++, drawn++)
+          addch('#');
+        attroff(COLOR_PAIR(3));
+        for (int j = drawn; j < bar_width; j++)
+          addch(' ');
+        attron(COLOR_PAIR(4));
+        mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
+        attroff(COLOR_PAIR(4));
+
+        /* Print CPU load right-aligned inside CPU bar */
+        mvprintw(row, cpu_bar_start + 1 + bar_width - 5, "%5.1f", hosts[i].cpu_usage);
+
+        /* Draw Memory bar */
+        if (hosts[i].mem_initialized && hosts[i].mem_total > 0) {
+          int mem_used_bars = (int)((double)hosts[i].mem_used / hosts[i].mem_total * bar_width);
+          int mem_buff_bars = (int)((double)hosts[i].mem_buffers / hosts[i].mem_total * bar_width);
+          int mem_total_bars = mem_used_bars + mem_buff_bars;
+          if (mem_total_bars > bar_width) {
+            mem_buff_bars = bar_width - mem_used_bars;
+            if (mem_buff_bars < 0) mem_buff_bars = 0;
+            mem_total_bars = bar_width;
+          }
+
+          attron(COLOR_PAIR(4));
+          mvprintw(row, mem_bar_start, "[");
+          attroff(COLOR_PAIR(4));
+
+          attron(COLOR_PAIR(1));
+          for (int j = 0; j < mem_used_bars; j++)
+            addch('#');
+          attroff(COLOR_PAIR(1));
+          attron(COLOR_PAIR(6));
+          for (int j = 0; j < mem_buff_bars; j++)
+            addch('#');
+          attroff(COLOR_PAIR(6));
+          for (int j = mem_total_bars; j < bar_width; j++)
+            addch(' ');
+          attron(COLOR_PAIR(4));
+          mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+          attroff(COLOR_PAIR(4));
+
+          /* Print memory usage right-aligned inside memory bar */
+          mvprintw(row, mem_bar_start + 1 + bar_width - 6, "%6.1f", hosts[i].mem_usage);
+        } else {
+          attron(COLOR_PAIR(4));
+          mvprintw(row, mem_bar_start, "[");
+          mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+          attroff(COLOR_PAIR(4));
+          mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
+        }
+      }
+
+      if (compact_mode) {
+        attron(COLOR_PAIR(7));
+        if (hosts[i].temp_initialized) {
+          mvprintw(row, pct_col, "%3.0f %3.0f %3.0f %3.0f %s",
+                   hosts[i].user_pct, hosts[i].system_pct,
+                   hosts[i].idle_pct, hosts[i].cpu_temp, locked ? " " : spinner);
+        } else {
+          mvprintw(row, pct_col, "%3.0f %3.0f %3.0f %4s %s",
+                   hosts[i].user_pct, hosts[i].system_pct,
+                   hosts[i].idle_pct, "---", locked ? " " : spinner);
+        }
+        attroff(COLOR_PAIR(7));
+      } else {
+        if (hosts[i].temp_initialized) {
+          attron(COLOR_PAIR(7));
+          mvprintw(row, pct_col, "%5.1f %5.1f %5.1f %5.1f %5.1f %s",
+                   hosts[i].user_pct, hosts[i].system_pct,
+                   hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].cpu_temp, locked ? " " : spinner);
+          attroff(COLOR_PAIR(7));
+        } else {
+          attron(COLOR_PAIR(7));
+          mvprintw(row, pct_col, "%5.1f %5.1f %5.1f %5.1f %4s %s",
+                   hosts[i].user_pct, hosts[i].system_pct,
+                   hosts[i].nice_pct, hosts[i].idle_pct, "---", locked ? " " : spinner);
+          attroff(COLOR_PAIR(7));
+        }
+      }
+    } else {
+      if (show_bars) {
+        attron(COLOR_PAIR(4));
+        mvprintw(row, cpu_bar_start, "[");
+        mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
+        attroff(COLOR_PAIR(4));
+        mvprintw(row, cpu_bar_start + 1, "%-*s", bar_width, "...");
+
         attron(COLOR_PAIR(4));
         mvprintw(row, mem_bar_start, "[");
         mvprintw(row, mem_bar_start + 1 + bar_width, "]");
@@ -468,34 +544,12 @@ int update_display() {
         mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
       }
 
-      if (hosts[i].temp_initialized) {
-        attron(COLOR_PAIR(7));
-        mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %5.1f  %s",
-                 hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
-                 hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, hosts[i].cpu_temp, locked ? " " : spinner);
-        attroff(COLOR_PAIR(7));
-      } else {
-        attron(COLOR_PAIR(7));
-        mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %5s  %s",
-                 hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
-                 hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, "--.-", locked ? " " : spinner);
-        attroff(COLOR_PAIR(7));
-      }
-    } else {
-      attron(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start, "[");
-      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
-      attroff(COLOR_PAIR(4));
-      mvprintw(row, cpu_bar_start + 1, "%-*s", bar_width, "...");
-
-      attron(COLOR_PAIR(4));
-      mvprintw(row, mem_bar_start, "[");
-      mvprintw(row, mem_bar_start + 1 + bar_width, "]");
-      attroff(COLOR_PAIR(4));
-      mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
-
       attron(COLOR_PAIR(7));
-      mvprintw(row, pct_col, "%-47s%s", "connecting...", locked ? " " : spinner);
+      if (compact_mode) {
+        mvprintw(row, pct_col, "%-*s%s", 20, "connecting...", locked ? " " : spinner);
+      } else {
+        mvprintw(row, pct_col, "%-*s%s", show_bars ? 47 : 20, "connecting...", locked ? " " : spinner);
+      }
       attroff(COLOR_PAIR(7));
     }
 
@@ -630,13 +684,10 @@ int main(int argc, char *argv[]) {
     int ch = getch();
     if (ch == 'q' || ch == 'Q' || ch == 27)
       break;
-    if (ch == KEY_RESIZE) {
-      clear();
-      refresh();
-    }
 
+    /* Update display with current terminal size (handles resize automatically) */
     if (update_display() != 0) {
-      int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + 2 + 2 + 10 + STATS_COL_WIDTH;
+      int min_width = HOSTNAME_COL_WIDTH + 2 + STATS_COL_WIDTH;
       int min_height = 3;
       int max_y, max_x;
       getmaxyx(stdscr, max_y, max_x);
@@ -651,13 +702,14 @@ int main(int argc, char *argv[]) {
       return 1;
     }
 
+    /* Sleep for update interval, checking for input periodically */
     for (int s = 0; s < steps; s++) {
       napms(100);
       ch = getch();
       if (ch == 'q' || ch == 'Q' || ch == 27)
         break;
       if (ch == KEY_RESIZE) {
-        clear();
+        /* Immediately update display with new terminal size */
         break;
       }
     }
