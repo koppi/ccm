@@ -13,6 +13,7 @@ jobs:
     name: Build .deb for ${{ matrix.distro }} ${{ matrix.codename }} (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Ubuntu
