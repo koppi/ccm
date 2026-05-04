@@ -36,7 +36,7 @@
 #define MAX_HOSTS 10000
 #define MAX_HOSTNAME 256
 #define HOSTNAME_COL_WIDTH 16
-#define PCT_COL_WIDTH 39 /* "  Load%  usr%  sys% nice% idle%  U" */
+#define STATS_COL_WIDTH 41 /* " Load%  usr% sys% nice% idle%  Mem%  U" */
 
 /* Host information structure */
 typedef struct {
@@ -50,12 +50,15 @@ typedef struct {
   unsigned long long prev_idle, prev_iowait,
       prev_total;  /* Previous idle and total */
   int initialized; /* Flag if previous values are initialized */
-  int ssh_failed;  /* Flag if SSH connection failed */
+  int ssh_failed;    /* Flag if SSH connection failed */
+  double mem_usage;  /* Memory utilization percentage */
+  int mem_initialized; /* Flag if memory values are initialized */
+  unsigned long long mem_total, mem_used, mem_shared, mem_buffers, mem_cached;
   pthread_mutex_t lock; /* Per-host mutex for concurrent access */
 } HostInfo;
 
 /* Forward declarations */
-int get_cpu_usage(const char *hostname, HostInfo *host);
+int get_host_info(const char *hostname, HostInfo *host);
 
 /* Global array of hosts and host count */
 HostInfo hosts[MAX_HOSTS];
@@ -78,6 +81,8 @@ int read_hosts(const char *filename) {
       snprintf(hosts[host_count].hostname, MAX_HOSTNAME, "%s", line);
       hosts[host_count].initialized = 0;
       hosts[host_count].ssh_failed = 0;
+      hosts[host_count].mem_usage = 0.0;
+      hosts[host_count].mem_initialized = 0;
       pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
@@ -104,6 +109,8 @@ void parse_hosts_list(const char *hostlist) {
       snprintf(hosts[host_count].hostname, MAX_HOSTNAME, "%s", token);
       hosts[host_count].initialized = 0;
       hosts[host_count].ssh_failed = 0;
+      hosts[host_count].mem_usage = 0.0;
+      hosts[host_count].mem_initialized = 0;
       pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
@@ -125,7 +132,7 @@ void *worker_thread_func(void *arg) {
   ThreadArg *targ = (ThreadArg *)arg;
   for (int i = targ->start_idx; i < host_count; i += targ->step) {
     pthread_mutex_lock(&hosts[i].lock);
-    get_cpu_usage(hosts[i].hostname, &hosts[i]);
+    get_host_info(hosts[i].hostname, &hosts[i]);
     pthread_mutex_unlock(&hosts[i].lock);
   }
   return NULL;
@@ -160,17 +167,16 @@ void *update_thread_func(void *arg) {
   return NULL;
 }
 
-/* Get CPU usage via SSH by reading /proc/stat from remote host */
-int get_cpu_usage(const char *hostname, HostInfo *host) {
+/* Get CPU and memory usage via a single SSH command to the remote host */
+int get_host_info(const char *hostname, HostInfo *host) {
   char cmd[512];
   FILE *fp;
   char line[256];
-  unsigned long long user, nice, system, idle, iowait;
 
   snprintf(
       cmd, sizeof(cmd),
       "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
-      "\"cat /proc/stat 2>/dev/null | head -1\" 2>/dev/null",
+      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; }\" 2>/dev/null",
       hostname);
 
   fp = popen(cmd, "r");
@@ -179,6 +185,22 @@ int get_cpu_usage(const char *hostname, HostInfo *host) {
     return -1;
   }
 
+  /* Parse CPU line */
+  if (!fgets(line, sizeof(line), fp)) {
+    pclose(fp);
+    host->ssh_failed = 1;
+    return -1;
+  }
+
+  unsigned long long user, nice, system, idle, iowait;
+  if (sscanf(line, "cpu %llu %llu %llu %llu %llu", &user, &nice, &system, &idle,
+             &iowait) < 5) {
+    pclose(fp);
+    host->ssh_failed = 1;
+    return -1;
+  }
+
+  /* Parse memory line */
   if (!fgets(line, sizeof(line), fp)) {
     pclose(fp);
     host->ssh_failed = 1;
@@ -186,10 +208,17 @@ int get_cpu_usage(const char *hostname, HostInfo *host) {
   }
   pclose(fp);
 
-  if (sscanf(line, "cpu %llu %llu %llu %llu %llu", &user, &nice, &system, &idle,
-             &iowait) < 5) {
-    host->ssh_failed = 1;
-    return -1;
+  unsigned long long mem_total = 0, mem_used = 0, mem_free = 0, mem_shared = 0, mem_buff_cache = 0, mem_available = 0;
+  if (sscanf(line, "Mem: %llu %llu %llu %llu %llu %llu", &mem_total, &mem_used, &mem_free, &mem_shared, &mem_buff_cache, &mem_available) >= 6) {
+    if (mem_total > 0) {
+      host->mem_total = mem_total;
+      host->mem_used = mem_used;
+      host->mem_shared = mem_shared;
+      host->mem_buffers = mem_buff_cache;
+      host->mem_cached = 0;
+      host->mem_usage = ((double)mem_used / mem_total) * 100.0;
+      host->mem_initialized = 1;
+    }
   }
 
   host->ssh_failed = 0;
@@ -258,7 +287,7 @@ void print_help(const char *prog) {
 /* Print version information */
 void print_version() { printf("ccm version %s\n", VERSION); }
 
-/* Update the ncurses display with current CPU usage for all hosts */
+/* Update the ncurses display with current CPU and memory usage for all hosts */
 int update_display() {
   static const char *spinners[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
   static int frame = 0;
@@ -270,24 +299,21 @@ int update_display() {
   int max_y, max_x;
   getmaxyx(stdscr, max_y, max_x);
 
-  /* Minimum terminal size: header row + at least one data row + footer = 3 rows */
-  /* Minimum width: hostname(16) + spaces(2) + brackets(2) + minbar(10) + stats(39) */
-  int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + PCT_COL_WIDTH;
+  int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + 2 + 2 + 10 + STATS_COL_WIDTH;
   int min_height = 3;
   if (max_x < min_width || max_y < min_height) {
     return 1;
   }
 
-  int bar_start_col = HOSTNAME_COL_WIDTH + 2; /* After hostname + 2 spaces */
-  int pct_col = max_x - PCT_COL_WIDTH;
-  if (pct_col < bar_start_col + 10)
-    pct_col = bar_start_col + 10;
+  int cpu_bar_start = HOSTNAME_COL_WIDTH + 2;
+  int pct_col = max_x - STATS_COL_WIDTH;
 
-  int bar_width = pct_col - bar_start_col - 3; /* -3 for "[ ]" */
+  int total_bar_space = pct_col - cpu_bar_start - 4; /* -4 for "[ ]  [ ]" */
+  int bar_width = total_bar_space / 2 - 2;
   if (bar_width < 10)
     bar_width = 10;
-  if (bar_width > max_x - bar_start_col - 3)
-    bar_width = max_x - bar_start_col - 3;
+
+  int mem_bar_start = cpu_bar_start + bar_width + 4;
 
   int row = 1;
 
@@ -295,29 +321,28 @@ int update_display() {
   char header[max_x + 1];
   int hpos = 0;
   hpos += snprintf(header + hpos, sizeof(header) - hpos, " %-*s", HOSTNAME_COL_WIDTH, "Hostname");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, " ");
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "[");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, " [");
   if (bar_width > 0)
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "CPU load");
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "]  [");
+  if (bar_width > 0)
+    hpos += snprintf(header + hpos, sizeof(header) - hpos, "%-*s", bar_width, "Mem usage");
   hpos += snprintf(header + hpos, sizeof(header) - hpos, "]");
-  /* Fill remaining space to reach pct_col */
   int mid_width = pct_col - hpos;
   if (mid_width > 0) {
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%*s", mid_width, "");
   }
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %c", "Load%", "usr%", "sys%",
-           "nice%", "idle%", ' ');
-  /* Truncate to terminal width */
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %5s  %c", "Load%", "usr%", "sys%",
+            "nice%", "idle%", "Mem%", ' ');
   if (hpos > max_x)
     header[max_x] = '\0';
-  /* Fill remaining terminal width with spaces */
   while ((int)strlen(header) < max_x)
     strcat(header, " ");
   attron(COLOR_PAIR(5));
   mvprintw(row, 0, "%s", header);
   attroff(COLOR_PAIR(5));
 
-  /* Print each host's CPU usage */
+  /* Print each host's CPU and memory usage */
   for (int i = 0; i < host_count && (i + 3) < max_y; i++) {
     row = i + 2;
     char display_name[HOSTNAME_COL_WIDTH + 1];
@@ -329,58 +354,113 @@ int update_display() {
 
     if (hosts[i].ssh_failed) {
       attron(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col, "[");
+      mvprintw(row, cpu_bar_start, "[");
       attroff(COLOR_PAIR(4));
       attron(COLOR_PAIR(2));
-      mvprintw(row, bar_start_col + 1, "%-*s", bar_width, "SSH connect failed");
+      mvprintw(row, cpu_bar_start + 1, "%-*s", bar_width, "SSH connect failed");
       attroff(COLOR_PAIR(2));
       attron(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
-      mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %s", "--.-", "--.-", "--.-",
-               "--.-", "--.-", locked ? " " : spinner);
+
+      attron(COLOR_PAIR(4));
+      mvprintw(row, mem_bar_start, "[");
+      attroff(COLOR_PAIR(4));
+      attron(COLOR_PAIR(2));
+      mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "");
+      attroff(COLOR_PAIR(2));
+      attron(COLOR_PAIR(4));
+      mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+      attroff(COLOR_PAIR(4));
+
+       mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %5s  %s", "--.-", "--.-", "--.-",
+                "--.-", "--.-", "--.-", locked ? " " : spinner);
     } else if (hosts[i].initialized) {
-      int bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
-      if (bars > bar_width)
-        bars = bar_width;
+      /* Draw CPU bar */
+      int cpu_bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
+      if (cpu_bars > bar_width)
+        cpu_bars = bar_width;
 
       int usr_bars = (int)(hosts[i].user_pct / 100.0 * bar_width);
       int sys_bars = (int)(hosts[i].system_pct / 100.0 * bar_width);
       int nice_bars = (int)(hosts[i].nice_pct / 100.0 * bar_width);
 
       attron(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col, "[");
+      mvprintw(row, cpu_bar_start, "[");
       attroff(COLOR_PAIR(4));
 
       int drawn = 0;
       attron(COLOR_PAIR(1));
-      for (int j = 0; j < usr_bars && drawn < bars; j++, drawn++)
+      for (int j = 0; j < usr_bars && drawn < cpu_bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(1));
       attron(COLOR_PAIR(2));
-      for (int j = 0; j < sys_bars && drawn < bars; j++, drawn++)
+      for (int j = 0; j < sys_bars && drawn < cpu_bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(2));
       attron(COLOR_PAIR(3));
-      for (int j = 0; j < nice_bars && drawn < bars; j++, drawn++)
+      for (int j = 0; j < nice_bars && drawn < cpu_bars; j++, drawn++)
         addch('#');
       attroff(COLOR_PAIR(3));
       for (int j = drawn; j < bar_width; j++)
         addch(' ');
       attron(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
 
-      mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %s",
+      /* Draw Memory bar */
+      if (hosts[i].mem_initialized && hosts[i].mem_total > 0) {
+        int mem_used_bars = (int)((double)hosts[i].mem_used / hosts[i].mem_total * bar_width);
+        int mem_buff_bars = (int)((double)hosts[i].mem_buffers / hosts[i].mem_total * bar_width);
+        int mem_total_bars = mem_used_bars + mem_buff_bars;
+        if (mem_total_bars > bar_width) {
+          mem_buff_bars = bar_width - mem_used_bars;
+          if (mem_buff_bars < 0) mem_buff_bars = 0;
+          mem_total_bars = bar_width;
+        }
+
+        attron(COLOR_PAIR(4));
+        mvprintw(row, mem_bar_start, "[");
+        attroff(COLOR_PAIR(4));
+
+        attron(COLOR_PAIR(1));
+        for (int j = 0; j < mem_used_bars; j++)
+          addch('#');
+        attroff(COLOR_PAIR(1));
+        attron(COLOR_PAIR(6));
+        for (int j = 0; j < mem_buff_bars; j++)
+          addch('#');
+        attroff(COLOR_PAIR(6));
+        for (int j = mem_total_bars; j < bar_width; j++)
+          addch(' ');
+        attron(COLOR_PAIR(4));
+        mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+        attroff(COLOR_PAIR(4));
+      } else {
+        attron(COLOR_PAIR(4));
+        mvprintw(row, mem_bar_start, "[");
+        mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+        attroff(COLOR_PAIR(4));
+        mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
+      }
+
+      mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %s",
                hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
-               hosts[i].nice_pct, hosts[i].idle_pct, locked ? " " : spinner);
+               hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, locked ? " " : spinner);
     } else {
       attron(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col, "[");
-      mvprintw(row, bar_start_col + 1 + bar_width, "]");
+      mvprintw(row, cpu_bar_start, "[");
+      mvprintw(row, cpu_bar_start + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
-      mvprintw(row, bar_start_col + 1, "%-*s", bar_width, "...");
-      mvprintw(row, pct_col, "connecting...  %s", locked ? " " : spinner);
+      mvprintw(row, cpu_bar_start + 1, "%-*s", bar_width, "...");
+
+      attron(COLOR_PAIR(4));
+      mvprintw(row, mem_bar_start, "[");
+      mvprintw(row, mem_bar_start + 1 + bar_width, "]");
+      attroff(COLOR_PAIR(4));
+      mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
+
+      mvprintw(row, pct_col, "%-40s%s", "connecting...", locked ? " " : spinner);
     }
 
     if (locked)
@@ -394,7 +474,7 @@ int update_display() {
   mvprintw(footer_row, 0, " ESC Quit");
   /* Right-aligned version and name */
   char footer_right[64];
-  snprintf(footer_right, sizeof(footer_right), "Cluster CPU monitor %s", VERSION);
+  snprintf(footer_right, sizeof(footer_right), "Cluster CPU/Mem monitor %s", VERSION);
   int right_col = max_x - (int)strlen(footer_right) - 1;
   if (right_col > 10)
     mvprintw(footer_row, right_col, "%s", footer_right);
@@ -487,11 +567,12 @@ int main(int argc, char *argv[]) {
   setlocale(LC_ALL, "");
   initscr();
   start_color();
-  init_pair(1, COLOR_GREEN, COLOR_BLACK);  /* User CPU time */
+  init_pair(1, COLOR_GREEN, COLOR_BLACK);  /* User CPU / Mem used */
   init_pair(2, COLOR_RED, COLOR_BLACK);    /* System CPU time */
-  init_pair(3, COLOR_YELLOW, COLOR_BLACK); /* Nice CPU time */
+  init_pair(3, COLOR_YELLOW, COLOR_BLACK); /* Nice CPU / Mem cached */
   init_pair(4, COLOR_BLUE, COLOR_BLACK);   /* Bracket delimiters */
   init_pair(5, COLOR_BLACK, COLOR_GREEN);  /* Header/footer background */
+  init_pair(6, COLOR_CYAN, COLOR_BLACK);   /* Mem buffers/cache */
   cbreak();
   noecho();
   nodelay(stdscr, TRUE);
@@ -518,7 +599,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (update_display() != 0) {
-      int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + PCT_COL_WIDTH;
+      int min_width = HOSTNAME_COL_WIDTH + 2 + 2 + 10 + 2 + 2 + 10 + STATS_COL_WIDTH;
       int min_height = 3;
       int max_y, max_x;
       getmaxyx(stdscr, max_y, max_x);
