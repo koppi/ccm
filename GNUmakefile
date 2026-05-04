@@ -2,9 +2,12 @@ CC ?= gcc
 
 PREFIX ?= /usr
 
-CFLAGS = -Wall -Wextra -Werror -pthread -O3
-LDFLAGS = -lncursesw
+CFLAGS   = -Wall -Wextra -Werror -pthread -O3
+CFLAGS  += $(shell pkg-config --cflags ncursesw)
+LDFLAGS += $(shell pkg-config --libs ncursesw)
+
 TARGET = ccm
+
 SOURCES = ccm.c
 
 .PHONY: all clean install uninstall run
