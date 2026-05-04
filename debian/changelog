@@ -1,3 +1,10 @@
+ccm (0.0.4-1) UNRELEASED; urgency=medium
+
+  * Add CPU temperature column in Celsius
+  * Render stats columns in white foreground color
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Mon, 04 May 2026 00:15:00 +0200
+
 ccm (0.0.3-1) UNRELEASED; urgency=medium
 
   * Add memory utilization monitoring with horizontal bar graph

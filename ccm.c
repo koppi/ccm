@@ -27,7 +27,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define VERSION "0.0.3"
+#define VERSION "0.0.4"
 #define DEFAULT_HOSTS_FILE "hosts.txt"
 #define HOME_HOSTS_FILE ".ccmrc"
 #define FALLBACK_HOSTS_FILE "/etc/ccm.conf"
@@ -36,7 +36,7 @@
 #define MAX_HOSTS 10000
 #define MAX_HOSTNAME 256
 #define HOSTNAME_COL_WIDTH 16
-#define STATS_COL_WIDTH 41 /* " Load%  usr% sys% nice% idle%  Mem%  U" */
+#define STATS_COL_WIDTH 48 /* " Load%  usr% sys% nice% idle%  Mem%  Temp   U" */
 
 /* Host information structure */
 typedef struct {
@@ -54,6 +54,8 @@ typedef struct {
   double mem_usage;  /* Memory utilization percentage */
   int mem_initialized; /* Flag if memory values are initialized */
   unsigned long long mem_total, mem_used, mem_shared, mem_buffers, mem_cached;
+  double cpu_temp;
+  int temp_initialized;
   pthread_mutex_t lock; /* Per-host mutex for concurrent access */
 } HostInfo;
 
@@ -83,6 +85,8 @@ int read_hosts(const char *filename) {
       hosts[host_count].ssh_failed = 0;
       hosts[host_count].mem_usage = 0.0;
       hosts[host_count].mem_initialized = 0;
+      hosts[host_count].cpu_temp = 0.0;
+      hosts[host_count].temp_initialized = 0;
       pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
@@ -111,6 +115,8 @@ void parse_hosts_list(const char *hostlist) {
       hosts[host_count].ssh_failed = 0;
       hosts[host_count].mem_usage = 0.0;
       hosts[host_count].mem_initialized = 0;
+      hosts[host_count].cpu_temp = 0.0;
+      hosts[host_count].temp_initialized = 0;
       pthread_mutex_init(&hosts[host_count].lock, NULL);
       host_count++;
     }
@@ -176,7 +182,7 @@ int get_host_info(const char *hostname, HostInfo *host) {
   snprintf(
       cmd, sizeof(cmd),
       "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
-      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; }\" 2>/dev/null",
+      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
       hostname);
 
   fp = popen(cmd, "r");
@@ -206,7 +212,6 @@ int get_host_info(const char *hostname, HostInfo *host) {
     host->ssh_failed = 1;
     return -1;
   }
-  pclose(fp);
 
   unsigned long long mem_total = 0, mem_used = 0, mem_free = 0, mem_shared = 0, mem_buff_cache = 0, mem_available = 0;
   if (sscanf(line, "Mem: %llu %llu %llu %llu %llu %llu", &mem_total, &mem_used, &mem_free, &mem_shared, &mem_buff_cache, &mem_available) >= 6) {
@@ -219,6 +224,23 @@ int get_host_info(const char *hostname, HostInfo *host) {
       host->mem_usage = ((double)mem_used / mem_total) * 100.0;
       host->mem_initialized = 1;
     }
+  }
+
+  /* Parse temperature line (millidegrees Celsius) */
+  if (!fgets(line, sizeof(line), fp)) {
+    pclose(fp);
+    host->ssh_failed = 1;
+    return -1;
+  }
+  pclose(fp);
+
+  int temp_raw;
+  if (sscanf(line, "%d", &temp_raw) == 1 && temp_raw > 0) {
+    host->cpu_temp = temp_raw / 1000.0;
+    host->temp_initialized = 1;
+  } else {
+    host->cpu_temp = 0.0;
+    host->temp_initialized = 0;
   }
 
   host->ssh_failed = 0;
@@ -332,8 +354,8 @@ int update_display() {
   if (mid_width > 0) {
     hpos += snprintf(header + hpos, sizeof(header) - hpos, "%*s", mid_width, "");
   }
-  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %5s  %c", "Load%", "usr%", "sys%",
-            "nice%", "idle%", "Mem%", ' ');
+  hpos += snprintf(header + hpos, sizeof(header) - hpos, "%6s  %5s %5s %5s %5s  %5s  %5s  %c", "Load%", "usr%", "sys%",
+            "nice%", "idle%", "Mem%", "Temp", ' ');
   if (hpos > max_x)
     header[max_x] = '\0';
   while ((int)strlen(header) < max_x)
@@ -373,8 +395,10 @@ int update_display() {
       mvprintw(row, mem_bar_start + 1 + bar_width, "]");
       attroff(COLOR_PAIR(4));
 
-       mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %5s  %s", "--.-", "--.-", "--.-",
-                "--.-", "--.-", "--.-", locked ? " " : spinner);
+        attron(COLOR_PAIR(7));
+        mvprintw(row, pct_col, "%6s  %5s %5s %5s %5s  %5s  %5s  %s", "--.-", "--.-", "--.-",
+                 "--.-", "--.-", "--.-", "--.-", locked ? " " : spinner);
+        attroff(COLOR_PAIR(7));
     } else if (hosts[i].initialized) {
       /* Draw CPU bar */
       int cpu_bars = (int)(hosts[i].cpu_usage / 100.0 * bar_width);
@@ -444,9 +468,19 @@ int update_display() {
         mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
       }
 
-      mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %s",
-               hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
-               hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, locked ? " " : spinner);
+      if (hosts[i].temp_initialized) {
+        attron(COLOR_PAIR(7));
+        mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %5.1f  %s",
+                 hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
+                 hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, hosts[i].cpu_temp, locked ? " " : spinner);
+        attroff(COLOR_PAIR(7));
+      } else {
+        attron(COLOR_PAIR(7));
+        mvprintw(row, pct_col, "%6.1f  %5.1f %5.1f %5.1f %5.1f  %5.1f  %5s  %s",
+                 hosts[i].cpu_usage, hosts[i].user_pct, hosts[i].system_pct,
+                 hosts[i].nice_pct, hosts[i].idle_pct, hosts[i].mem_usage, "--.-", locked ? " " : spinner);
+        attroff(COLOR_PAIR(7));
+      }
     } else {
       attron(COLOR_PAIR(4));
       mvprintw(row, cpu_bar_start, "[");
@@ -460,7 +494,9 @@ int update_display() {
       attroff(COLOR_PAIR(4));
       mvprintw(row, mem_bar_start + 1, "%-*s", bar_width, "...");
 
-      mvprintw(row, pct_col, "%-40s%s", "connecting...", locked ? " " : spinner);
+      attron(COLOR_PAIR(7));
+      mvprintw(row, pct_col, "%-47s%s", "connecting...", locked ? " " : spinner);
+      attroff(COLOR_PAIR(7));
     }
 
     if (locked)
@@ -573,6 +609,7 @@ int main(int argc, char *argv[]) {
   init_pair(4, COLOR_BLUE, COLOR_BLACK);   /* Bracket delimiters */
   init_pair(5, COLOR_BLACK, COLOR_GREEN);  /* Header/footer background */
   init_pair(6, COLOR_CYAN, COLOR_BLACK);   /* Mem buffers/cache */
+  init_pair(7, COLOR_WHITE, COLOR_BLACK);  /* Stats text */
   cbreak();
   noecho();
   nodelay(stdscr, TRUE);
