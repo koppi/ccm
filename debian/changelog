@@ -1,3 +1,10 @@
+ccm (0.0.6-1) UNRELEASED; urgency=medium
+
+  * Prefer CPU temperature sensor over case sensor when gathering remote temperature
+  * Use pkg-config for ncurses build flags
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Sat, 09 May 2026 17:34:07 +0200
+
 ccm (0.0.5-1) UNRELEASED; urgency=medium
 
   * Add responsive terminal display with compact mode for narrow terminals
