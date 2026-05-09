@@ -183,7 +183,7 @@ int get_host_info(const char *hostname, HostInfo *host) {
   snprintf(
       cmd, sizeof(cmd),
       "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
-      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
+      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; for d in /sys/class/thermal/thermal_zone*; do case \\$(cat \\$d/type 2>/dev/null) in cpu-thermal|x86_pkg_temp|cpu) cat \\$d/temp; exit 0;; esac; done; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
       hostname);
 
   fp = popen(cmd, "r");
