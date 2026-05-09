@@ -114,7 +114,7 @@ jobs:
               echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
             fi
             apt-get update -qq
-            apt-get install -y -qq build-essential devscripts debhelper dh-make libncurses-dev
+            apt-get install -y -qq build-essential devscripts debhelper dh-make pkgconf libncurses-dev
             sed -i "1s/.*/ccm (${VERSION}) ${CODENAME}; urgency=medium/" debian/changelog
             dpkg-buildpackage -b -uc -us -d
             mkdir -p "/workspace/${REPO_DIR}/deb-output"
