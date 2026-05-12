@@ -1,3 +1,11 @@
+ccm (0.0.7-1) UNRELEASED; urgency=medium
+
+  * Fix temperature detection on AMD hosts and locale-sensitive free output
+  * Force LANG=C LC_ALL=C to handle non-English locales in free output
+  * Add hwmon fallback detection for AMD k10temp and Intel coretemp sensors
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Wed, 13 May 2026 01:26:25 +0200
+
 ccm (0.0.6-1) UNRELEASED; urgency=medium
 
   * Prefer CPU temperature sensor over case sensor when gathering remote temperature
