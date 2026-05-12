@@ -176,14 +176,14 @@ void *update_thread_func(void *arg) {
 
 /* Get CPU and memory usage via a single SSH command to the remote host */
 int get_host_info(const char *hostname, HostInfo *host) {
-  char cmd[512];
+  char cmd[1024];
   FILE *fp;
   char line[256];
 
   snprintf(
       cmd, sizeof(cmd),
       "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
-      "\"{ cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; for d in /sys/class/thermal/thermal_zone*; do case \\$(cat \\$d/type 2>/dev/null) in cpu-thermal|x86_pkg_temp|cpu) cat \\$d/temp; exit 0;; esac; done; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
+      "\"export LANG=C LC_ALL=C; { cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; for d in /sys/class/thermal/thermal_zone*; do case \\$(cat \\$d/type 2>/dev/null) in cpu-thermal|x86_pkg_temp|cpu|acpitz) cat \\$d/temp 2>/dev/null && exit 0;; esac; done; for f in /sys/devices/platform/coretemp.*/hwmon/hwmon*/temp*_input /sys/class/hwmon/hwmon*/temp*_input; do [ -f \"\\$f\" ] && { cat \"\\$f\" 2>/dev/null && exit 0; }; done 2>/dev/null; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
       hostname);
 
   fp = popen(cmd, "r");
