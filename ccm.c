@@ -174,120 +174,109 @@ void *update_thread_func(void *arg) {
   return NULL;
 }
 
-/* Get CPU and memory usage via a single SSH command to the remote host */
 int get_host_info(const char *hostname, HostInfo *host) {
   char cmd[1024];
   FILE *fp;
   char line[256];
 
-  snprintf(
-      cmd, sizeof(cmd),
-      "ssh -x -T -o ConnectTimeout=1 -o ServerAliveInterval=1 -o ServerAliveCountMax=1 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GSSAPIAuthentication=no %s "
-      "\"export LANG=C LC_ALL=C; { cat /proc/stat 2>/dev/null | head -1; free 2>/dev/null | grep '^Mem:'; for d in /sys/class/thermal/thermal_zone*; do case \\$(cat \\$d/type 2>/dev/null) in cpu-thermal|x86_pkg_temp|cpu|acpitz) cat \\$d/temp 2>/dev/null && exit 0;; esac; done; for f in /sys/devices/platform/coretemp.*/hwmon/hwmon*/temp*_input /sys/class/hwmon/hwmon*/temp*_input; do [ -f \"\\$f\" ] && { cat \"\\$f\" 2>/dev/null && exit 0; }; done 2>/dev/null; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; }\" 2>/dev/null",
-      hostname);
+  /* Combine all queries into one command */
+  snprintf(cmd, sizeof(cmd),
+           "ssh -x -T -o ConnectTimeout=1 -o BatchMode=yes -o StrictHostKeyChecking=no %s "
+           "\"uname -s; "
+           "if [ \\$(uname -s) = 'FreeBSD' ]; then "
+           "  top -b -n 1 | head -n 5; "
+           "  (sysctl -n dev.cpu.0.temperature 2>/dev/null || sysctl -n hw.acpi.thermal.tz0.temperature 2>/dev/null || sysctl -n dev.acpi_ibm.0.thermal 2>/dev/null) | head -n 1 | awk '{print \\$1}' | sed 's/C//'; "
+           "else "
+           "  top -bn 1 | head -n 5; "
+           "  for d in /sys/class/thermal/thermal_zone*; do "
+           "    case \\$(cat \\$d/type 2>/dev/null) in "
+           "      cpu-thermal|x86_pkg_temp|cpu|acpitz) cat \\$d/temp 2>/dev/null && exit 0;; "
+           "    esac; "
+           "  done; "
+           "  for f in /sys/devices/platform/coretemp.*/hwmon/hwmon*/temp*_input /sys/class/hwmon/hwmon*/temp*_input; do "
+           "    [ -f \\\"\\$f\\\" ] && { cat \\\"\\$f\\\" 2>/dev/null && exit 0; }; "
+           "  done 2>/dev/null; "
+           "  cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 'N/A'; "
+           "fi\"",
+           hostname);
 
   fp = popen(cmd, "r");
-  if (!fp) {
-    host->ssh_failed = 1;
-    return -1;
-  }
+  if (!fp) { host->ssh_failed = 1; return -1; }
 
-  /* Parse CPU line */
-  if (!fgets(line, sizeof(line), fp)) {
-    pclose(fp);
-    host->ssh_failed = 1;
-    return -1;
-  }
+  /* 1. Get OS */
+  if (!fgets(line, sizeof(line), fp)) { pclose(fp); host->ssh_failed = 1; return -1; }
+  line[strcspn(line, "\n")] = 0;
+  int is_freebsd = (strcmp(line, "FreeBSD") == 0);
 
-  unsigned long long user, nice, system, idle, iowait;
-  if (sscanf(line, "cpu %llu %llu %llu %llu %llu", &user, &nice, &system, &idle,
-             &iowait) < 5) {
-    pclose(fp);
-    host->ssh_failed = 1;
-    return -1;
-  }
-
-  /* Parse memory line */
-  if (!fgets(line, sizeof(line), fp)) {
-    pclose(fp);
-    host->ssh_failed = 1;
-    return -1;
-  }
-
-  unsigned long long mem_total = 0, mem_used = 0, mem_free = 0, mem_shared = 0, mem_buff_cache = 0, mem_available = 0;
-  if (sscanf(line, "Mem: %llu %llu %llu %llu %llu %llu", &mem_total, &mem_used, &mem_free, &mem_shared, &mem_buff_cache, &mem_available) >= 6) {
-    if (mem_total > 0) {
-      host->mem_total = mem_total;
-      host->mem_used = mem_used;
-      host->mem_shared = mem_shared;
-      host->mem_buffers = mem_buff_cache;
-      host->mem_cached = 0;
-      host->mem_usage = ((double)mem_used / mem_total) * 100.0;
+  if (is_freebsd) {
+    /* 2. FreeBSD: Parse top output */
+    if (!fgets(line, sizeof(line), fp) || !fgets(line, sizeof(line), fp)) {} /* Skip header */
+    
+    double u, n, s, i;
+    if (fgets(line, sizeof(line), fp) && 
+        sscanf(line, "CPU: %lf%% user, %lf%% nice, %lf%% system, %*f%% interrupt, %lf%% idle", 
+               &u, &n, &s, &i) >= 4) {
+      host->user_pct = u; host->nice_pct = n; host->system_pct = s; host->idle_pct = i;
+      host->cpu_usage = 100.0 - i;
+    }
+    
+    double a, ia, w, f;
+    if (fgets(line, sizeof(line), fp) &&
+        sscanf(line, "Mem: %lfM Active, %lfM Inact, %lfM Wired, %lfM Free", 
+               &a, &ia, &w, &f) >= 4) {
+      host->mem_total = (unsigned long long)(a + ia + w + f);
+      host->mem_used = (unsigned long long)(a + ia + w);
+      host->mem_buffers = 0; /* Buffers not explicitly reported on FreeBSD top */
+      host->mem_usage = (host->mem_total > 0) ? ((double)host->mem_used / host->mem_total) * 100.0 : 0.0;
       host->mem_initialized = 1;
     }
-  }
-
-  /* Parse temperature line (millidegrees Celsius) */
-  if (!fgets(line, sizeof(line), fp)) {
-    pclose(fp);
-    host->ssh_failed = 1;
-    return -1;
-  }
-  pclose(fp);
-
-  int temp_raw;
-  if (sscanf(line, "%d", &temp_raw) == 1 && temp_raw > 0) {
-    host->cpu_temp = temp_raw / 1000.0;
-    host->temp_initialized = 1;
-  } else {
-    host->cpu_temp = 0.0;
+    
+    /* 3. FreeBSD: Parse temperature - read remaining lines to find value */
+    char temp_line[256];
     host->temp_initialized = 0;
-  }
-
-  host->ssh_failed = 0;
-
-  unsigned long long total = user + nice + system + idle + iowait;
-
-  if (!host->initialized) {
-    host->prev_user = user;
-    host->prev_nice = nice;
-    host->prev_system = system;
-    host->prev_idle = idle;
-    host->prev_iowait = iowait;
-    host->prev_total = total;
-    host->initialized = 1;
-    return -1;
-  }
-
-  unsigned long long user_delta = user - host->prev_user;
-  unsigned long long nice_delta = nice - host->prev_nice;
-  unsigned long long system_delta = system - host->prev_system;
-  unsigned long long idle_delta = idle - host->prev_idle;
-  unsigned long long iowait_delta = iowait - host->prev_iowait;
-  unsigned long long total_delta = total - host->prev_total;
-
-  if (total_delta > 0) {
-    host->cpu_usage =
-        ((double)(total_delta - idle_delta - iowait_delta) / total_delta) *
-        100.0;
-    host->user_pct = (double)user_delta / total_delta * 100.0;
-    host->nice_pct = (double)nice_delta / total_delta * 100.0;
-    host->system_pct = (double)system_delta / total_delta * 100.0;
-    host->idle_pct = (double)idle_delta / total_delta * 100.0;
-    host->iowait_pct = (double)iowait_delta / total_delta * 100.0;
+    while (fgets(temp_line, sizeof(temp_line), fp)) {
+      char *ptr = strchr(temp_line, 'C');
+      if (ptr) *ptr = '\0';
+      double temp = atof(temp_line);
+      if (temp > 0.0) {
+        host->cpu_temp = temp;
+        host->temp_initialized = 1;
+        break;
+      }
+    }
   } else {
-    host->cpu_usage = 0.0;
-    host->user_pct = host->nice_pct = host->system_pct = 0.0;
-    host->idle_pct = host->iowait_pct = 0.0;
+    /* 2. Linux: Parse top output */
+    if (!fgets(line, sizeof(line), fp) || !fgets(line, sizeof(line), fp)) {} /* Skip header */
+    double u, s, n, i;
+    if (fgets(line, sizeof(line), fp) &&
+        sscanf(line, "%%Cpu(s): %lf us, %lf sy, %lf ni, %lf id", &u, &s, &n, &i) >= 4) {
+      host->user_pct = u; host->system_pct = s; host->nice_pct = n; host->idle_pct = i;
+      host->cpu_usage = 100.0 - i;
+    }
+    double total, free, used, buff;
+    if (fgets(line, sizeof(line), fp) &&
+        sscanf(line, "MiB Mem : %lf total, %lf free, %lf used, %lf buff", &total, &free, &used, &buff) >= 4) {
+      host->mem_total = (unsigned long long)total;
+      host->mem_used = (unsigned long long)used;
+      host->mem_buffers = (unsigned long long)buff;
+      host->mem_usage = (total > 0) ? (used / total) * 100.0 : 0.0;
+      host->mem_initialized = 1;
+    }
+    
+    /* 3. Linux: Parse temperature - read remaining lines to find value */
+    char temp_line[256];
+    host->temp_initialized = 0;
+    while (fgets(temp_line, sizeof(temp_line), fp)) {
+      if (strncmp(temp_line, "N/A", 3) != 0 && strlen(temp_line) > 1) {
+        host->cpu_temp = atof(temp_line) / 1000.0;
+        host->temp_initialized = (host->cpu_temp > 0);
+        if (host->temp_initialized) break;
+      }
+    }
   }
-
-  host->prev_user = user;
-  host->prev_nice = nice;
-  host->prev_system = system;
-  host->prev_idle = idle;
-  host->prev_iowait = iowait;
-  host->prev_total = total;
-
+  
+  pclose(fp);
+  host->initialized = 1; host->ssh_failed = 0;
   return 0;
 }
 
@@ -465,7 +454,7 @@ int update_display() {
         /* Draw Memory bar */
         if (hosts[i].mem_initialized && hosts[i].mem_total > 0) {
           int mem_used_bars = (int)((double)hosts[i].mem_used / hosts[i].mem_total * bar_width);
-          int mem_buff_bars = (int)((double)hosts[i].mem_buffers / hosts[i].mem_total * bar_width);
+          int mem_buff_bars = (hosts[i].mem_buffers > 0) ? (int)((double)hosts[i].mem_buffers / hosts[i].mem_total * bar_width) : 0;
           int mem_total_bars = mem_used_bars + mem_buff_bars;
           if (mem_total_bars > bar_width) {
             mem_buff_bars = bar_width - mem_used_bars;
