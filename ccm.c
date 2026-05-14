@@ -663,8 +663,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  /* Initialize ncurses */
-  setlocale(LC_ALL, "");
+  /* Initialize locale: POSIX for safe parsing, LC_CTYPE for UTF-8 ncurses */
+  setlocale(LC_ALL, "POSIX");
+  setlocale(LC_CTYPE, "");
   initscr();
   start_color();
   init_pair(1, COLOR_GREEN, COLOR_BLACK);  /* User CPU / Mem used */
