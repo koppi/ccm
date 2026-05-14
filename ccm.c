@@ -20,7 +20,7 @@
 
 #include <getopt.h>
 #include <locale.h>
-#include <ncursesw/ncurses.h>
+#include <ncurses.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
