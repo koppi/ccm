@@ -17,7 +17,8 @@ Ncurses-based CLI tool that monitors CPU and memory usage, as well as CPU temper
 ## Build
 
 ```bash
-make
+make  # Linux
+gmake # FreeBSD
 ```
 
 ## Installation
