@@ -1,3 +1,12 @@
+ccm (0.0.8-1) UNRELEASED; urgency=medium
+
+  * Add cross-platform support for FreeBSD monitoring
+  * Consolidate OS detection, CPU, memory, and temperature data into one SSH call
+  * Add robust thermal zone scanning for Linux and fallback paths for FreeBSD
+  * Fix memory bar graph rendering and temperature parsing inconsistencies
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Thu, 14 May 2026 11:30:00 +0200
+
 ccm (0.0.7-1) UNRELEASED; urgency=medium
 
   * Fix temperature detection on AMD hosts and locale-sensitive free output
