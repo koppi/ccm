@@ -4,6 +4,10 @@ Ncurses-based CLI tool that monitors CPU and memory usage, as well as CPU temper
 
 ![](ccm.gif)
 
+## Supported Systems
+
+`ccm` supports running on and monitoring both **Linux** and **FreeBSD** systems.
+
 ## Requirements
 
 - GCC
