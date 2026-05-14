@@ -653,6 +653,16 @@ int main(int argc, char *argv[]) {
   /* Store interval for background thread */
   update_interval = interval;
 
+  /* Drop setuid/setgid privileges permanently */
+  if (setregid(getgid(), getgid()) == -1) {
+    perror("setregid");
+    return 1;
+  }
+  if (setreuid(getuid(), getuid()) == -1) {
+    perror("setreuid");
+    return 1;
+  }
+
   /* Initialize ncurses */
   setlocale(LC_ALL, "");
   initscr();
