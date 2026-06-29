@@ -46,7 +46,7 @@ cp ccm.conf.example ~/.ccmrc
 ./ccm [-n SEC] [--hostfile FILE] [-H HOSTS] [-t N] [-h] [-v]
 ```
 
-- `-n SEC` - Update interval in seconds (default: 0.5)
+- `--interval, -n SEC` - Update interval in seconds (default: 0.5)
 - `--hostfile FILE` - Use specified hosts file (default: hosts.txt, fallback: ~/.ccmrc, then /etc/ccm.conf)
 - `-H, --hosts LIST` - Comma-separated list of hosts to monitor
 - `-t, --threads N` - Number of parallel SSH threads (default: 4)
