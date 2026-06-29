@@ -675,6 +675,18 @@ int main(int argc, char *argv[]) {
   pthread_t update_thread;
   pthread_create(&update_thread, NULL, update_thread_func, NULL);
 
+  /* Wait for initial SSH data collection before first display */
+  while (1) {
+    int ready = 0;
+    for (int i = 0; i < host_count; i++) {
+      pthread_mutex_lock(&hosts[i].lock);
+      if (hosts[i].initialized || hosts[i].ssh_failed) ready++;
+      pthread_mutex_unlock(&hosts[i].lock);
+    }
+    if (ready == host_count) break;
+    napms(50);
+  }
+
   /* Calculate number of steps for the display update interval */
   steps = (int)(interval * 10);
   if (steps < 1)
