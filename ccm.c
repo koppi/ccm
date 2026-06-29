@@ -285,7 +285,7 @@ void print_help(const char *prog) {
   printf("Usage: %s [OPTIONS]\n", prog);
   printf("Monitor CPU and memory usage across multiple hosts via SSH.\n\n");
   printf("Options:\n");
-  printf("  -n SEC           Update interval in seconds (default: 0.5)\n");
+  printf("  -n, --interval SEC  Update interval in seconds (default: 0.5)\n");
   printf("  --hostfile FILE  Use specified hosts file (default: %s, fallback: "
          "~/%s, then %s)\n",
          DEFAULT_HOSTS_FILE, HOME_HOSTS_FILE, FALLBACK_HOSTS_FILE);
@@ -570,6 +570,7 @@ int main(int argc, char *argv[]) {
   int steps;
 
   static struct option long_options[] = {
+      {"interval", required_argument, 0, 'n'},
       {"hostfile", required_argument, 0, 'f'},
       {"hosts", required_argument, 0, 'H'},
       {"threads", required_argument, 0, 't'},
