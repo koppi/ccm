@@ -1,0 +1,86 @@
+.TH CCM 1 "August 2026" "ccm 0.0.9" "User Commands"
+.SH NAME
+ccm \- monitor CPU, memory, and temperature of multiple hosts via SSH
+.SH SYNOPSIS
+.B ccm
+[\fB\-n\fR \fISECONDS\fR]
+[\fB\-f\fR, \fB\-\-hostfile\fR \fIFILE\fR]
+[\fB\-H\fR, \fB\-\-hosts\fR \fIHOST\fR[,\fIHOST\fR...]]
+[\fB\-t\fR, \fB\-\-threads\fR \fIN\fR]
+[\fB\-h\fR, \fB\-\-help\fR]
+[\fB\-v\fR, \fB\-\-version\fR]
+.SH DESCRIPTION
+.B ccm
+is an ncurses-based command line tool that monitors CPU utilization, memory
+usage, and CPU temperature of multiple hosts over SSH, displaying real-time
+horizontal bar graphs. Both Linux and FreeBSD hosts are supported as
+monitoring targets.
+.PP
+Hosts are queried in parallel using multiple SSH connections. The display
+shows the hostname, CPU load, memory usage, and statistics columns
+(user/system/nice/idle CPU percentages and temperature). Press
+.B q
+or
+.B ESC
+to quit.
+.SH OPTIONS
+.TP
+.B \-n, \-\-interval \fISECONDS\fR
+Update interval in seconds. Defaults to 0.5.
+.TP
+.B \-f, \-\-hostfile \fIFILE\fR
+Use the specified hosts file. Defaults to
+.I hosts.txt
+with fallbacks to
+.I ~/.ccmrc
+and
+.I /etc/ccm.conf
+.
+.TP
+.B \-H, \-\-hosts \fIHOST\fR[,\fIHOST\fR...]
+Monitor the given comma-separated list of hosts. May be combined with a host
+file.
+.TP
+.B \-t, \-\-threads \fIN\fR
+Number of parallel SSH threads. Defaults to 4, clamped to the range 1\(en100.
+.TP
+.B \-h, \-\-help
+Display help and exit.
+.TP
+.B \-v, \-\-version
+Display version information and exit.
+.SH HOSTS FILE FORMAT
+The hosts file contains one hostname per line. Lines starting with
+.B #
+are ignored as comments.
+.SH FILES
+.TP
+.I hosts.txt
+Default hosts file, read from the current working directory.
+.TP
+.I ~/.ccmrc
+Per-user hosts file, used if
+.I hosts.txt
+is not present.
+.TP
+.I /etc/ccm.conf
+System-wide hosts file, used as a last fallback.
+.SH REQUIREMENTS
+SSH access to the monitored hosts with key-based authentication
+.B (BatchMode=yes)
+is required; no password prompt can be answered.
+.SH EXIT STATUS
+.TP
+.B 0
+Successful completion.
+.TP
+.B 1
+An error occurred (no hosts specified, terminal too small, or privilege
+drop failed).
+.SH AUTHOR
+Jakob Flierl <jakob.flierl@gmail.com>
+.SH SEE ALSO
+.BR ssh (1),
+.BR top (1)
+.SH LICENSE
+MIT license. See the LICENSE file in the source distribution.
