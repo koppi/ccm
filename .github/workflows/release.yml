@@ -121,7 +121,7 @@ jobs:
             find /workspace -path "*/deb-output" -prune -o -type f \( -name "*.deb" -o -name "*.ddeb" -o -name "*.dsc" \) -print | while read -r f; do cp "$f" "/workspace/${REPO_DIR}/deb-output/"; done
             '
         env:
-          DEB_BUILD_OPTIONS: nocheck
+          DEB_BUILD_OPTIONS: nocheck nostrip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
