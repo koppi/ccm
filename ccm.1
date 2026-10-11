@@ -1,6 +1,6 @@
 .TH CCM 1 "August 2026" "ccm 0.0.9" "User Commands"
 .SH NAME
-ccm \- monitor CPU, memory, and temperature of multiple hosts via SSH
+ccm \- monitor CPU, GPU, memory, and temperature of multiple hosts via SSH or talosctl
 .SH SYNOPSIS
 .B ccm
 [\fB\-n\fR \fISECONDS\fR]
@@ -11,12 +11,16 @@ ccm \- monitor CPU, memory, and temperature of multiple hosts via SSH
 [\fB\-v\fR, \fB\-\-version\fR]
 .SH DESCRIPTION
 .B ccm
-is an ncurses-based command line tool that monitors CPU utilization, memory
-usage, and CPU temperature of multiple hosts over SSH, displaying real-time
+is an ncurses-based command line tool that monitors CPU utilization, GPU load,
+memory usage, and CPU temperature of multiple hosts over SSH, displaying real-time
 horizontal bar graphs. Both Linux and FreeBSD hosts are supported as
-monitoring targets.
+monitoring targets. Talos Linux nodes, which have no SSH, are monitored through
+.BR talosctl (1)
+instead.
 .PP
-Hosts are queried in parallel using multiple SSH connections. The display
+Hosts are queried in parallel using multiple SSH or
+.B talosctl
+connections. The display
 shows the hostname, CPU load, memory usage, and statistics columns
 (user/system/nice/idle CPU percentages and temperature). Press
 .B q
@@ -42,7 +46,9 @@ Monitor the given comma-separated list of hosts. May be combined with a host
 file.
 .TP
 .B \-t, \-\-threads \fIN\fR
-Number of parallel SSH threads. Defaults to 4, clamped to the range 1\(en100.
+Number of parallel SSH or
+.B talosctl
+threads. Defaults to 4, clamped to the range 1\(en100.
 .TP
 .B \-h, \-\-help
 Display help and exit.
@@ -53,6 +59,63 @@ Display version information and exit.
 The hosts file contains one hostname per line. Lines starting with
 .B #
 are ignored as comments.
+.PP
+A plain hostname is queried over SSH. A hostname prefixed with
+.B talos:
+is a Talos Linux node and is queried with
+.B talosctl
+instead. The prefix is accepted in the hosts file and in the
+.B \-H
+list alike:
+.PP
+.nf
+.RS
+node1
+talos:192.168.1.10
+.RE
+.fi
+.SH GPU LOAD
+On Linux and Talos Linux hosts with an AMD GPU (the
+.B amdgpu
+driver, including integrated GPUs),
+.B ccm
+shows the GPU load as a third bar next to CPU and memory. The value is read from
+.IR /sys/class/drm/card*/device/gpu_busy_percent .
+.PP
+The bar is shown as soon as one host reports a GPU and the terminal is at least
+90 columns wide; otherwise the display is unchanged. Hosts without a supported
+GPU show
+.B n/a
+in the bar. NVIDIA and Intel GPUs and FreeBSD hosts are not supported.
+.SH TALOS LINUX NODES
+Talos Linux has no shell or SSH, so
+.B ccm
+reads
+.IR /proc/stat ,
+.I /proc/meminfo
+and the CPU temperature sensor under
+.I /sys
+with
+.BI "talosctl \-\-nodes=" HOST " read " FILE .
+CPU percentages are derived from the difference between two samples of the
+cumulative counters, so the first reading of a node takes a fraction of a second
+longer than later ones. A temperature of
+.B ---
+is shown if the node has no CPU sensor.
+.PP
+.B talosctl
+uses the talosconfig named by the
+.B TALOSCONFIG
+environment variable, or
+.I ~/.talos/config
+if it is unset, and the endpoints of its current context. Name nodes exactly as
+.B talosctl get members
+lists them (or by IP), because a node's certificate is only valid for its own
+Talos hostname and addresses. To see why a node is shown as failed, run
+.BI "talosctl \-\-nodes=" HOST " read /proc/stat"
+yourself. Each call is stopped
+after 3 seconds, so an unreachable node is shown as failed without blocking the
+display.
 .SH FILES
 .TP
 .I hosts.txt
@@ -68,7 +131,13 @@ System-wide hosts file, used as a last fallback.
 .SH REQUIREMENTS
 SSH access to the monitored hosts with key-based authentication
 .B (BatchMode=yes)
-is required; no password prompt can be answered.
+is required; no password prompt can be answered. Hosts prefixed with
+.B talos:
+instead require
+.B talosctl
+in
+.B PATH
+and a working talosconfig.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -81,6 +150,7 @@ drop failed).
 Jakob Flierl <jakob.flierl@gmail.com>
 .SH SEE ALSO
 .BR ssh (1),
+.BR talosctl (1),
 .BR top (1)
 .SH LICENSE
 MIT license. See the LICENSE file in the source distribution.
