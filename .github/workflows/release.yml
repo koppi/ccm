@@ -112,6 +112,9 @@ jobs:
             if [ "$DISTRO" = "debian" ] && [ "$CODENAME" = "buster" ]; then
               echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
               echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
+            elif [ "$DISTRO" = "debian" ] && [ "$CODENAME" = "bullseye" ]; then
+              echo "deb http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list
+              echo "deb http://archive.debian.org/debian-security bullseye-security main" >> /etc/apt/sources.list
             fi
             apt-get update -qq
             apt-get install -y -qq build-essential devscripts debhelper dh-make pkgconf libncurses-dev
