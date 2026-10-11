@@ -1,3 +1,12 @@
+ccm (0.0.10-1) UNRELEASED; urgency=medium
+
+  * Bump version to 0.0.10
+  * Add Talos Linux support: hosts prefixed with "talos:" are monitored
+    through talosctl instead of SSH
+  * Show AMD GPU load as a third bar for SSH and Talos hosts
+
+ -- Jakob Flierl <jakob.flierl@gmail.com>  Sun, 11 Oct 2026 20:58:34 +0200
+
 ccm (0.0.9-1) UNRELEASED; urgency=medium
 
   * Bump version to 0.0.9

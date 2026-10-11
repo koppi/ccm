@@ -38,7 +38,7 @@
 
 extern char **environ;
 
-#define VERSION "0.0.9"
+#define VERSION "0.0.10"
 #define DEFAULT_HOSTS_FILE "hosts.txt"
 #define HOME_HOSTS_FILE ".ccmrc"
 #define FALLBACK_HOSTS_FILE "/etc/ccm.conf"
