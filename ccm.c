@@ -213,7 +213,7 @@ static int get_host_info_ssh(const char *hostname, HostInfo *host) {
   /* Combine all queries into one command */
   snprintf(cmd, sizeof(cmd),
            "ssh -x -T -o ConnectTimeout=1 -o BatchMode=yes -o StrictHostKeyChecking=no %s "
-           "\"uname -s; "
+           "\"export LC_ALL=C; uname -s; "
            "if [ \\$(uname -s) = 'FreeBSD' ]; then "
            "  top -b -n 1 | head -n 5; "
            "  (sysctl -n dev.cpu.0.temperature 2>/dev/null || sysctl -n hw.acpi.thermal.tz0.temperature 2>/dev/null || sysctl -n dev.acpi_ibm.0.thermal 2>/dev/null) | head -n 1 | awk '{print \\$1}' | sed 's/C//'; "
